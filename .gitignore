@@ -4,6 +4,7 @@ venv/
 env/
 ENV/
 voice_agent/
+.claude/
 
 # Python
 __pycache__/
@@ -36,3 +37,5 @@ wheels/
 # OS
 .DS_Store
 Thumbs.db
+
+voice_models/
