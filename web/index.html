@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Voice Agent Live (Fixed)</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
+    button { margin-right: 0.5rem; padding: 0.5rem 1rem; }
+    #status { white-space: pre-line; margin-top: 1rem; padding: 0.75rem; border: 1px solid #ccc; border-radius: 4px; }
+    .processing { background-color: #fff3cd; border-color: #ffc107; }
+    .listening { background-color: #d1ecf1; border-color: #0dcaf0; }
+  </style>
+</head>
+<body>
+  <h1>Voice Agent Live (Fixed Sync)</h1>
+  <p>Click Start, speak, and the agent will reply. Audio is processed locally on the host machine.</p>
+  <div>
+    <button id="start">Start</button>
+    <button id="stop" disabled>Stop</button>
+  </div>
+  <div id="status">Idle</div>
+
+  <script>
+    const api = `${location.origin}/api/voice`;
+    let sessionId = crypto.randomUUID();
+    let audioContext;
+    let processor;
+    let sourceNode;
+    let samples = [];
+    let isRecording = false;
+    const chunkSeconds = 2;
+    const playQueue = [];
+    let isPlaying = false;
+
+    // FIX #1: Add request queue to prevent parallel requests
+    let isProcessing = false;
+    const requestQueue = [];
+
+    // FIX #2: Process requests sequentially
+    async function processQueue() {
+      if (isProcessing || requestQueue.length === 0) return;
+
+      isProcessing = true;
+      setStatus('Processing...', 'processing');
+
+      const { blob, fileExt, mimeType } = requestQueue.shift();
+
+      try {
+        await sendChunk(blob, fileExt, mimeType);
+      } catch (err) {
+        console.error('Request failed:', err);
+      } finally {
+        isProcessing = false;
+        if (requestQueue.length > 0) {
+          // Process next chunk after a small delay to prevent overwhelming server
+          setTimeout(processQueue, 100);
+        } else {
+          setStatus('Listening...', 'listening');
+        }
+      }
+    }
+
+    // FIX #3: Enqueue instead of sending directly
+    function enqueueChunk(blob, fileExt, mimeType) {
+      // Limit queue size to prevent backlog
+      if (requestQueue.length >= 3) {
+        console.warn('Request queue full, dropping oldest chunk');
+        requestQueue.shift();
+      }
+      requestQueue.push({ blob, fileExt, mimeType });
+      processQueue();
+    }
+
+    // FIX #4: Add status helper
+    function setStatus(text, className = '') {
+      const statusEl = document.getElementById('status');
+      statusEl.innerText = text;
+      statusEl.className = className;
+    }
+
+    async function sendChunk(blob, fileExt, mimeType) {
+      const fd = new FormData();
+      fd.append('audio', blob, `chunk${fileExt}`);
+      fd.append('mime_type', mimeType);
+      fd.append('session_id', sessionId);
+
+      const res = await fetch(api, { method: 'POST', body: fd });
+      if (!res.ok) {
+        const txt = await res.text();
+        console.error(txt);
+        setStatus(`Error: ${txt}`);
+        throw new Error(txt);
+      }
+
+      const data = await res.json();
+
+      // FIX #5: Only update status if we got actual content
+      if (data.user_text) {
+        setStatus(`You: ${data.user_text}\nAgent: ${data.reply_text}`);
+      }
+
+      // play reply
+      if (!data.reply_audio_b64 || data.silence) {
+        return; // silence or empty reply
+      }
+
+      const audioBytes = Uint8Array.from(atob(data.reply_audio_b64), c => c.charCodeAt(0));
+      const blobWav = new Blob([audioBytes], { type: 'audio/wav' });
+
+      // basic WAV header check: "RIFF"
+      if (audioBytes.length < 4 || audioBytes[0] !== 0x52 || audioBytes[1] !== 0x49 || audioBytes[2] !== 0x46 || audioBytes[3] !== 0x46) {
+        console.warn('Invalid WAV, skipping');
+        return;
+      }
+
+      enqueueAndPlay(blobWav);
+    }
+
+    async function playAudio(blobWav) {
+      return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(blobWav);
+        const audioEl = new Audio(url);
+        audioEl.onended = () => { URL.revokeObjectURL(url); resolve(); };
+        audioEl.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
+        audioEl.play().catch(err => { URL.revokeObjectURL(url); reject(err); });
+      });
+    }
+
+    async function enqueueAndPlay(blobWav) {
+      playQueue.push(blobWav);
+      if (isPlaying) return;
+      isPlaying = true;
+      while (playQueue.length) {
+        const next = playQueue.shift();
+        try {
+          await playAudio(next);
+        } catch (e) {
+          console.error('Playback failed', e);
+        }
+      }
+      isPlaying = false;
+    }
+
+    function encodeWav(floatSamples, sampleRate) {
+      // Convert Float32Array [-1,1] to 16-bit PCM WAV
+      const int16 = new Int16Array(floatSamples.length);
+      for (let i = 0; i < floatSamples.length; i++) {
+        const s = Math.max(-1, Math.min(1, floatSamples[i]));
+        int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      }
+      const byteRate = sampleRate * 2; // mono 16-bit
+      const blockAlign = 2;
+      const buffer = new ArrayBuffer(44 + int16.length * 2);
+      const view = new DataView(buffer);
+
+      // RIFF header
+      writeString(view, 0, 'RIFF');
+      view.setUint32(4, 36 + int16.length * 2, true);
+      writeString(view, 8, 'WAVE');
+      writeString(view, 12, 'fmt ');
+      view.setUint32(16, 16, true); // PCM chunk size
+      view.setUint16(20, 1, true);  // PCM format
+      view.setUint16(22, 1, true);  // mono
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, byteRate, true);
+      view.setUint16(32, blockAlign, true);
+      view.setUint16(34, 16, true); // bits per sample
+      writeString(view, 36, 'data');
+      view.setUint32(40, int16.length * 2, true);
+
+      // PCM samples
+      let offset = 44;
+      for (let i = 0; i < int16.length; i++) {
+        view.setInt16(offset, int16[i], true);
+        offset += 2;
+      }
+      return new Blob([buffer], { type: 'audio/wav' });
+    }
+
+    function writeString(view, offset, str) {
+      for (let i = 0; i < str.length; i++) {
+        view.setUint8(offset + i, str.charCodeAt(i));
+      }
+    }
+
+    function flushChunks(sampleRate) {
+      // FIX #6: Don't send chunks if already processing
+      if (isProcessing && requestQueue.length > 0) {
+        console.log('Still processing, skipping chunk generation');
+        return;
+      }
+
+      const targetRate = 16000;
+      const chunkLength = targetRate * chunkSeconds;
+      const resampled = [];
+
+      // Simple resample
+      const ratio = sampleRate / targetRate;
+      while (samples.length >= sampleRate * chunkSeconds) {
+        const take = samples.slice(0, Math.floor(sampleRate * chunkSeconds));
+        samples = samples.slice(Math.floor(sampleRate * chunkSeconds));
+
+        for (let i = 0; i < chunkLength; i++) {
+          const idx = Math.floor(i * ratio);
+          resampled.push(take[idx] || 0);
+        }
+
+        // FIX #7: More aggressive energy check
+        const energy = resampled.reduce((acc, v) => acc + Math.abs(v), 0) / resampled.length;
+        if (energy < 0.001) {  // Increased from 0.0005
+          console.log('Silent chunk skipped, energy:', energy);
+          resampled.length = 0;
+          continue;
+        }
+
+        console.log('Chunk energy:', energy, '- sending');
+        const wavBlob = encodeWav(new Float32Array(resampled), targetRate);
+        resampled.length = 0;
+
+        // FIX #8: Enqueue instead of sending directly
+        enqueueChunk(wavBlob, '.wav', 'audio/wav');
+      }
+    }
+
+    document.getElementById('start').onclick = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        sourceNode = audioContext.createMediaStreamSource(stream);
+        processor = audioContext.createScriptProcessor(4096, 1, 1);
+        samples = [];
+
+        // Reset queue
+        requestQueue.length = 0;
+        isProcessing = false;
+
+        processor.onaudioprocess = (e) => {
+          if (!isRecording) return;
+          const input = e.inputBuffer.getChannelData(0);
+          const copy = new Float32Array(input.length);
+          copy.set(input);
+          samples.push(...copy);
+          flushChunks(audioContext.sampleRate);
+        };
+
+        sourceNode.connect(processor);
+        processor.connect(audioContext.destination);
+        isRecording = true;
+        document.getElementById('start').disabled = true;
+        document.getElementById('stop').disabled = false;
+        setStatus('Listening...', 'listening');
+      } catch (err) {
+        console.error(err);
+        setStatus(`Mic error: ${err}`);
+      }
+    };
+
+    document.getElementById('stop').onclick = () => {
+      isRecording = false;
+      if (processor) {
+        processor.disconnect();
+        processor = null;
+      }
+      if (sourceNode) {
+        sourceNode.disconnect();
+        sourceNode = null;
+      }
+      if (audioContext) {
+        audioContext.close();
+        audioContext = null;
+      }
+
+      // Clear any pending requests
+      requestQueue.length = 0;
+      isProcessing = false;
+
+      document.getElementById('start').disabled = false;
+      document.getElementById('stop').disabled = true;
+      setStatus('Stopped');
+    };
+  </script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(voice_agentScriptspython.exe -c \"from piper.voice import PiperVoice; import inspect; print(inspect.signature(PiperVoice.synthesize))\")",
+      "Bash(./voice_agent/Scripts/python.exe:*)",
+      "Bash(timeout /t 5)",
+      "Bash(nul)",
+      "Bash(curl:*)",
+      "Bash(ping:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

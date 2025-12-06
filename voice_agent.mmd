@@ -1,0 +1,41 @@
+flowchart LR
+  subgraph Browser ["Friend's Browser (Web UI)"]
+    MIC["Mic Capture (Web Audio, 16k WAV chunks)"]
+    POST["POST /api/voice (multipart WAV + session_id)"]
+    PLAY["Audio Playback (queued WAV)"]
+  end
+
+  subgraph FastAPIServer ["Local Server (FastAPI)"]
+    API["/api/voice handler"]
+    CONV["Convert to WAV (ffmpeg / imageio-ffmpeg)"]
+    STT["STT (faster-whisper)"]
+    LLM["LLM (Ollama llama3.1:8b)"]
+    TTS["TTS (Piper ONNX)"]
+    RESP["Reply JSON (transcript, text, base64 WAV)"]
+  end
+
+  subgraph State ["Conversation State"]
+    SESSION["session_id → ConversationState"]
+  end
+
+  subgraph Files ["Local Assets"]
+    MODELS["voice_models/*.onnx; Ollama model cache"]
+    CODE["server.py, modules/*, web/index.html"]
+  end
+
+  MIC --> POST
+  POST --> API
+  API --> CONV
+  CONV --> STT
+  STT -->|transcript| LLM
+  LLM -->|reply text| TTS
+  TTS -->|WAV bytes| RESP
+  RESP --> PLAY
+
+  API --> SESSION
+  SESSION --> LLM
+  SESSION --> STT
+  SESSION --> TTS
+
+  API --- MODELS
+  API --- CODE

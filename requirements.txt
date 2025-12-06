@@ -1,0 +1,26 @@
+# Core dependencies
+faster-whisper>=0.10.0
+torch>=2.0.0
+numpy>=1.24.0
+soundfile>=0.12.0
+
+# Audio processing
+noisereduce>=3.0.0
+
+# LLM and API
+requests>=2.31.0
+
+# Text-to-Speech
+piper-tts>=1.2.0
+
+# Audio playback
+sounddevice>=0.4.6
+
+# Utilities
+python-dotenv>=1.0.0
+
+# API server
+fastapi>=0.115.5
+uvicorn[standard]>=0.32.1
+python-multipart>=0.0.12
+imageio-ffmpeg>=0.4.9

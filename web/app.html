@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Voice Agent - v3.0</title>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      max-width: 600px;
+      width: 100%;
+      padding: 40px;
+    }
+
+    h1 {
+      color: #2d3748;
+      font-size: 32px;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+
+    .subtitle {
+      color: #718096;
+      text-align: center;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+
+    .status-card {
+      background: #f7fafc;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+      border: 2px solid #e2e8f0;
+      transition: all 0.3s ease;
+      min-height: 120px;
+    }
+
+    .status-card.idle {
+      border-color: #cbd5e0;
+      background: #f7fafc;
+    }
+
+    .status-card.listening {
+      border-color: #4299e1;
+      background: #ebf8ff;
+      box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
+    }
+
+    .status-card.processing {
+      border-color: #ed8936;
+      background: #fffaf0;
+      box-shadow: 0 0 0 3px rgba(237, 137, 54, 0.1);
+    }
+
+    .status-card.speaking {
+      border-color: #48bb78;
+      background: #f0fff4;
+      box-shadow: 0 0 0 3px rgba(72, 187, 120, 0.1);
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .status-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #cbd5e0;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    .status-card.listening .status-dot {
+      background: #4299e1;
+    }
+
+    .status-card.processing .status-dot {
+      background: #ed8936;
+    }
+
+    .status-card.speaking .status-dot {
+      background: #48bb78;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .status-text {
+      font-weight: 600;
+      color: #2d3748;
+      font-size: 18px;
+    }
+
+    .transcript {
+      color: #4a5568;
+      font-size: 14px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+    }
+
+    .controls {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin-bottom: 24px;
+    }
+
+    button {
+      padding: 14px 32px;
+      font-size: 16px;
+      font-weight: 600;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+
+    button:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+    }
+
+    button:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    #startBtn {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    #stopBtn {
+      background: #fc8181;
+      color: white;
+    }
+
+    .info {
+      background: #edf2f7;
+      border-radius: 8px;
+      padding: 16px;
+      font-size: 13px;
+      color: #4a5568;
+      line-height: 1.5;
+    }
+
+    .info strong {
+      color: #2d3748;
+    }
+
+    .debug {
+      margin-top: 20px;
+      padding: 16px;
+      background: #2d3748;
+      color: #e2e8f0;
+      border-radius: 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      max-height: 150px;
+      overflow-y: auto;
+    }
+
+    .debug-line {
+      margin-bottom: 4px;
+      opacity: 0.9;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(0,0,0,0.1);
+      border-radius: 50%;
+      border-top-color: currentColor;
+      animation: spin 1s ease-in-out infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎙️ AI Voice Agent</h1>
+    <p class="subtitle">Speak naturally and I'll help you book an appointment</p>
+
+    <div id="statusCard" class="status-card idle">
+      <div class="status-indicator">
+        <div class="status-dot"></div>
+        <div class="status-text" id="statusText">Ready</div>
+      </div>
+      <div class="transcript" id="transcript">Click "Start" to begin conversation...</div>
+    </div>
+
+    <div class="controls">
+      <button id="startBtn">Start Conversation</button>
+      <button id="stopBtn" disabled>Stop</button>
+    </div>
+
+    <div class="info">
+      <strong>💡 Tips:</strong><br>
+      • Speak clearly after clicking Start<br>
+      • Wait for the agent to finish before speaking again<br>
+      • Say "goodbye" or "exit" to end the conversation
+    </div>
+
+    <div class="debug" id="debug"></div>
+  </div>
+
+  <script>
+    const API_URL = `${location.origin}/api/voice`;
+
+    // Generate UUID with fallback for older browsers
+    function generateUUID() {
+      if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+      }
+      // Fallback UUID v4 generator
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+    }
+
+    let sessionId = generateUUID();
+    let audioContext;
+    let processor;
+    let sourceNode;
+    let samples = [];
+    let isRecording = false;
+    let isProcessing = false;
+    let isSpeaking = false;
+    const chunkSeconds = 3; // Increased to 3 seconds for better capture
+
+    // Audio playback queue
+    const audioQueue = [];
+    let isPlayingAudio = false;
+
+    // UI Elements
+    const statusCard = document.getElementById('statusCard');
+    const statusText = document.getElementById('statusText');
+    const transcript = document.getElementById('transcript');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const debugEl = document.getElementById('debug');
+
+    // Enable debug mode (always on for troubleshooting)
+    const DEBUG = true;
+
+    function log(message) {
+      console.log(message);
+      if (DEBUG) {
+        const line = document.createElement('div');
+        line.className = 'debug-line';
+        line.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+        debugEl.insertBefore(line, debugEl.firstChild);
+        // Keep only last 20 lines
+        while (debugEl.children.length > 20) {
+          debugEl.removeChild(debugEl.lastChild);
+        }
+      }
+    }
+
+    function setStatus(state, text, transcriptText = null) {
+      statusCard.className = `status-card ${state}`;
+      statusText.innerHTML = text;
+      if (transcriptText !== null) {
+        transcript.textContent = transcriptText;
+      }
+      log(`Status: ${state} - ${text.replace(/<[^>]*>/g, '')}`);
+    }
+
+    // CRITICAL FIX: Only send ONE chunk at a time, wait for response
+    async function sendAudioChunk(audioBlob) {
+      if (isProcessing) {
+        log('⚠️ Already processing, dropping chunk');
+        return;
+      }
+
+      isProcessing = true;
+      setStatus('processing', 'Processing <span class="spinner"></span>', 'Agent is thinking...');
+
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'chunk.wav');
+      formData.append('session_id', sessionId);
+      formData.append('mime_type', 'audio/wav');
+
+      try {
+        log('📤 Sending audio chunk...');
+        const response = await fetch(API_URL, {
+          method: 'POST',
+          body: formData
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+        }
+
+        const data = await response.json();
+        log(`📥 Response received: "${data.user_text}"`);
+
+        // Update transcript
+        if (data.user_text && data.reply_text) {
+          const newTranscript = `You: ${data.user_text}\n\nAgent: ${data.reply_text}`;
+          setStatus('processing', 'Processing <span class="spinner"></span>', newTranscript);
+        }
+
+        // Play audio if available
+        if (data.reply_audio_b64 && !data.silence) {
+          await playAgentResponse(data.reply_audio_b64);
+        }
+
+        // Return to listening state
+        if (isRecording) {
+          setStatus('listening', 'Listening...', transcript.textContent);
+        }
+
+      } catch (error) {
+        log(`❌ Error: ${error.message}`);
+        setStatus('idle', 'Error - Click Start to retry', `Error: ${error.message}`);
+      } finally {
+        isProcessing = false;
+      }
+    }
+
+    async function playAgentResponse(base64Audio) {
+      isSpeaking = true;
+      setStatus('speaking', 'Agent speaking...', transcript.textContent);
+      log('🔊 Playing agent response...');
+
+      try {
+        const audioBytes = Uint8Array.from(atob(base64Audio), c => c.charCodeAt(0));
+        const audioBlob = new Blob([audioBytes], { type: 'audio/wav' });
+
+        // Validate WAV
+        if (audioBytes.length < 4 || audioBytes[0] !== 0x52 || audioBytes[1] !== 0x49 ||
+            audioBytes[2] !== 0x46 || audioBytes[3] !== 0x46) {
+          log('⚠️ Invalid WAV format, skipping');
+          return;
+        }
+
+        await playAudio(audioBlob);
+        log('✅ Playback complete');
+
+      } catch (error) {
+        log(`❌ Playback error: ${error.message}`);
+      } finally {
+        isSpeaking = false;
+      }
+    }
+
+    function playAudio(blob) {
+      return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+
+        audio.onended = () => {
+          URL.revokeObjectURL(url);
+          resolve();
+        };
+
+        audio.onerror = (e) => {
+          URL.revokeObjectURL(url);
+          reject(e);
+        };
+
+        audio.play().catch(reject);
+      });
+    }
+
+    function encodeWav(floatSamples, sampleRate) {
+      const int16 = new Int16Array(floatSamples.length);
+      for (let i = 0; i < floatSamples.length; i++) {
+        const s = Math.max(-1, Math.min(1, floatSamples[i]));
+        int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      }
+
+      const buffer = new ArrayBuffer(44 + int16.length * 2);
+      const view = new DataView(buffer);
+
+      // RIFF header
+      const writeString = (offset, str) => {
+        for (let i = 0; i < str.length; i++) {
+          view.setUint8(offset + i, str.charCodeAt(i));
+        }
+      };
+
+      writeString(0, 'RIFF');
+      view.setUint32(4, 36 + int16.length * 2, true);
+      writeString(8, 'WAVE');
+      writeString(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeString(36, 'data');
+      view.setUint32(40, int16.length * 2, true);
+
+      let offset = 44;
+      for (let i = 0; i < int16.length; i++) {
+        view.setInt16(offset, int16[i], true);
+        offset += 2;
+      }
+
+      return new Blob([buffer], { type: 'audio/wav' });
+    }
+
+    function processAudioChunks(sampleRate) {
+      // CRITICAL: Don't process if we're already busy
+      if (isProcessing || isSpeaking) {
+        log('⏸️ Skipping chunk - agent is busy');
+        return;
+      }
+
+      const targetRate = 16000;
+      const chunkLength = targetRate * chunkSeconds;
+
+      // Check if we have enough samples
+      if (samples.length < sampleRate * chunkSeconds) {
+        return;
+      }
+
+      log(`🎤 Processing audio chunk (${samples.length} samples)`);
+
+      // Take exactly one chunk
+      const take = samples.slice(0, Math.floor(sampleRate * chunkSeconds));
+      samples = samples.slice(Math.floor(sampleRate * chunkSeconds));
+
+      // Resample to 16kHz
+      const ratio = sampleRate / targetRate;
+      const resampled = [];
+      for (let i = 0; i < chunkLength; i++) {
+        const idx = Math.floor(i * ratio);
+        resampled.push(take[idx] || 0);
+      }
+
+      // Check energy (silence detection)
+      const energy = resampled.reduce((acc, v) => acc + Math.abs(v), 0) / resampled.length;
+      log(`📊 Audio energy: ${energy.toFixed(6)}`);
+
+      if (energy < 0.002) {
+        log('🔇 Silent chunk, skipping');
+        return;
+      }
+
+      // Encode and send
+      const wavBlob = encodeWav(new Float32Array(resampled), targetRate);
+      sendAudioChunk(wavBlob);
+    }
+
+    // Start button
+    startBtn.onclick = async () => {
+      try {
+        log('🎙️ Starting microphone...');
+
+        // Check if getUserMedia is supported
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error('getUserMedia is not supported in this browser. Please use Chrome, Firefox, or Edge, and access via https:// or localhost');
+        }
+
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        sourceNode = audioContext.createMediaStreamSource(stream);
+        processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+        samples = [];
+        isProcessing = false;
+        isSpeaking = false;
+
+        processor.onaudioprocess = (e) => {
+          if (!isRecording) return;
+
+          const input = e.inputBuffer.getChannelData(0);
+          const copy = new Float32Array(input.length);
+          copy.set(input);
+          samples.push(...copy);
+
+          processAudioChunks(audioContext.sampleRate);
+        };
+
+        sourceNode.connect(processor);
+        processor.connect(audioContext.destination);
+
+        isRecording = true;
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+
+        setStatus('listening', 'Listening...', 'Speak now...');
+        log('✅ Recording started');
+
+      } catch (error) {
+        log(`❌ Microphone error: ${error.message}`);
+        setStatus('idle', 'Microphone Error', `Could not access microphone: ${error.message}`);
+      }
+    };
+
+    // Stop button
+    stopBtn.onclick = () => {
+      log('🛑 Stopping...');
+      isRecording = false;
+
+      if (processor) {
+        processor.disconnect();
+        processor = null;
+      }
+
+      if (sourceNode) {
+        sourceNode.disconnect();
+        sourceNode = null;
+      }
+
+      if (audioContext) {
+        audioContext.close();
+        audioContext = null;
+      }
+
+      samples = [];
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+
+      setStatus('idle', 'Stopped', 'Click Start to begin again...');
+      log('✅ Stopped');
+    };
+
+    // Initial checks
+    log('🚀 Voice Agent initialized');
+    log(`📍 Session ID: ${sessionId}`);
+    log(`🌐 API URL: ${API_URL}`);
+
+    // Check browser compatibility
+    if (!navigator.mediaDevices) {
+      log('⚠️ WARNING: navigator.mediaDevices not available');
+      setStatus('idle', 'Browser Not Supported', 'Please use Chrome, Firefox, or Edge with HTTPS or localhost');
+    } else {
+      log('✅ Browser supports getUserMedia');
+    }
+  </script>
+</body>
+</html>
